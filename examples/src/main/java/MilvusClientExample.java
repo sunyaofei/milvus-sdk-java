@@ -19,9 +19,7 @@
 
 import io.milvus.client.*;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.SplittableRandom;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.DoubleStream;
@@ -54,8 +52,11 @@ public class MilvusClientExample {
   public static void main(String[] args) throws InterruptedException, ConnectFailedException {
 
     // You may need to change the following to the host and port of your Milvus server
-    final String host = "localhost";
-    final String port = "19530";
+//    final String host = "localhost";
+//    final String port = "19530";
+
+    final String host = args[0];
+    final String port = args[1];
 
     // Create Milvus client
     MilvusClient client = new MilvusGrpcClient();
@@ -95,7 +96,8 @@ public class MilvusClientExample {
     System.out.println(describeTableResponse);
 
     // Insert randomly generated vectors to table
-    final int vectorCount = 100000;
+//    final int vectorCount = 100000;
+    final int vectorCount = 1000;
     List<List<Float>> vectors = generateVectors(vectorCount, dimension);
     vectors =
         vectors.stream().map(MilvusClientExample::normalizeVector).collect(Collectors.toList());
@@ -128,6 +130,8 @@ public class MilvusClientExample {
     DescribeIndexResponse describeIndexResponse = client.describeIndex(tableName);
     System.out.println(describeIndexResponse);
 
+    System.out.println("ready to search " + new Date());
+
     // Search vectors
     // Searching the first 5 vectors of the vectors we just inserted
     final int searchBatchSize = 5;
@@ -145,15 +149,18 @@ public class MilvusClientExample {
         // Since we are searching for vector that is already present in the table,
         // the first result vector should be itself and the distance (inner product) should be
         // very close to 1 (some precision is lost during the process)
-        SearchResponse.QueryResult firstQueryResult = queryResultsList.get(i).get(0);
-        if (firstQueryResult.getVectorId() != vectorIds.get(i)
-            || Math.abs(1 - firstQueryResult.getDistance()) > epsilon) {
-          throw new AssertionError("Wrong results!");
-        }
+        System.out.println(queryResultsList);
+//        SearchResponse.QueryResult firstQueryResult = queryResultsList.get(i).get(0);
+//        if (firstQueryResult.getVectorId() != vectorIds.get(i)
+//            || Math.abs(1 - firstQueryResult.getDistance()) > epsilon) {
+////          throw new AssertionError("Wrong results!");
+//        }
       }
     }
 
-    // Drop index for the table
+    System.out.println("search done " + new Date());
+
+//     Drop index for the table
     Response dropIndexResponse = client.dropIndex(tableName);
     System.out.println(dropIndexResponse);
 
