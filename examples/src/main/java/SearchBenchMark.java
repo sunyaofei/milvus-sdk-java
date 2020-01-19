@@ -130,6 +130,7 @@ public class SearchBenchMark {
                         nq[i], topk, costPerBatch, costPerVector));
                 fileWriter.write(String.format("%s,%s,%.4f,%.4f", nq[i], topks[j], costPerBatch, costPerVector));
                 fileWriter.write("\n");
+                fileWriter.flush();
             }
             fileWriter.write("\n");
         }
