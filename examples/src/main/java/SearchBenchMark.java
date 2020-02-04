@@ -1,13 +1,13 @@
 import com.alibaba.fastjson.JSON;
+import com.google.common.base.Splitter;
 import io.milvus.client.*;
 import org.apache.commons.lang3.StringUtils;
 
+import java.io.File;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.List;
-import java.util.SplittableRandom;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -75,14 +75,33 @@ public class SearchBenchMark {
         List<List<Float>> vectorsToSearch = vectorsPools.subList(0, searchBatchSize);
         final long topK = 10;
 
-        int[] nq = new int[]{1, 5, 10, 20, 50, 100};
-        long[] topks = new long[]{10, 20, 50, 100, 200, 500, 1024, 2048};
+        Integer[] nq = new Integer[]{1, 10, 30, 50};
+        Long[] topks = new Long[]{10L, 100L, 500L, 1024L};
         int querys = 10;
         String querysInEnv = System.getenv("QUERYS");
         if (StringUtils.isNumeric(querysInEnv)) {
-            querys = Integer.valueOf(querysInEnv);
+            querys = Integer.parseInt(querysInEnv);
         }
+
+        Properties conf = new Properties();
+        File file = new File("conf.properties");
+        if (file.exists()) {
+            conf.load(new FileReader(file));
+            if (conf.containsKey("querys")) {
+                querys = Integer.parseInt(conf.getOrDefault("querys", querys).toString());
+            }
+            if (conf.containsKey("nq")) {
+                nq = parseNqs(conf.get("nq").toString());
+            }
+
+            if (conf.containsKey("topks")) {
+                topks = parseTopks(conf.get("topks").toString());
+            }
+        }
+
         int finalQuery = querys;
+        System.out.println("nq=" + JSON.toJSONString(nq));
+        System.out.println("topks=" + JSON.toJSONString(topks));
         System.out.println("Interator querys: " + querys);
         TimeUnit.SECONDS.sleep(5);
         FileWriter fileWriter = new FileWriter(String.format("%s_%s_%s_output.csv", table, nprobe, concurrency));
@@ -137,6 +156,18 @@ public class SearchBenchMark {
         fileWriter.close();
         client.disconnect();
 
+
+
+    }
+
+    private static Long[] parseTopks(String topks) {
+        List<String> splits = Splitter.on(",").trimResults().omitEmptyStrings().splitToList(topks);
+        return splits.stream().map(Long::parseLong).distinct().toArray(Long[]::new);
+    }
+
+    private static Integer[] parseNqs(String nq) {
+        List<String> splits = Splitter.on(",").trimResults().omitEmptyStrings().splitToList(nq);
+        return splits.stream().map(Integer::parseInt).distinct().toArray(Integer[]::new);
     }
 
     private static void doSearch(String table, MilvusClient client, Long nprobe, List<List<Float>> vectorsToSearch, long topK) {
