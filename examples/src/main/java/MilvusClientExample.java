@@ -17,6 +17,7 @@
  * under the License.
  */
 
+import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.JsonObject;
 import io.milvus.client.*;
@@ -87,6 +88,7 @@ public class MilvusClientExample {
 
     // Create a collection with the following collection mapping
     final String collectionName = "example"; // collection name
+    final String partition = "partition"; // collection name
     final long dimension = 128; // dimension of each vector
     final long indexFileSize = 1024; // maximum size (in MB) of each index file
     final MetricType metricType = MetricType.IP; // we choose IP (Inner Product) as our metric type
@@ -103,14 +105,18 @@ public class MilvusClientExample {
     // Describe the collection
     DescribeCollectionResponse describeCollectionResponse =
         client.describeCollection(collectionName);
-
+    Response creatPartitionResponse = client.createPartition(collectionName, partition);
+    ShowPartitionsResponse showPartitionsResponse1 = client.showPartitions(collectionName);
+    ShowPartitionsResponse showPartitionsResponse2 = client.showPartitions(collectionName + "xx");
     // Insert randomly generated vectors to collection
-    final int vectorCount = 100000;
+    final int vectorCount = 100;
     List<List<Float>> vectors = generateVectors(vectorCount, dimension);
     vectors =
         vectors.stream().map(MilvusClientExample::normalizeVector).collect(Collectors.toList());
     InsertParam insertParam =
-        new InsertParam.Builder(collectionName).withFloatVectors(vectors).build();
+        new InsertParam.Builder(collectionName)
+                .withPartitionTag(partition)
+                .withFloatVectors(vectors).build();
     InsertResponse insertResponse = client.insert(insertParam);
     // Insert returns a list of vector ids that you will be using (if you did not supply them
     // yourself) to reference the vectors you just inserted
@@ -153,6 +159,7 @@ public class MilvusClientExample {
         new SearchParam.Builder(collectionName)
             .withFloatVectors(vectorsToSearch)
             .withTopK(topK)
+            .withPartitionTags(Lists.newArrayList(partition))
             .withParamsInJson(searchParamsJson.toString())
             .build();
     SearchResponse searchResponse = client.search(searchParam);
@@ -207,6 +214,8 @@ public class MilvusClientExample {
 
     // Drop index for the collection
     Response dropIndexResponse = client.dropIndex(collectionName);
+
+    Response response = client.dropPartition(collectionName, partition + "xxx");
 
     // Drop collection
     Response dropCollectionResponse = client.dropCollection(collectionName);
