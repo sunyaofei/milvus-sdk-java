@@ -105,7 +105,7 @@ public class MilvusClientExample {
         client.describeCollection(collectionName);
 
     // Insert randomly generated vectors to collection
-    final int vectorCount = 100000;
+    final int vectorCount = 10000;
     List<List<Float>> vectors = generateVectors(vectorCount, dimension);
     vectors =
         vectors.stream().map(MilvusClientExample::normalizeVector).collect(Collectors.toList());
