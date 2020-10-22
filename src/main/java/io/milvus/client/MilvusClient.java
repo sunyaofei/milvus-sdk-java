@@ -19,309 +19,432 @@
 
 package io.milvus.client;
 
+import com.google.common.util.concurrent.ListenableFuture;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
 /** The Milvus Client Interface */
 public interface MilvusClient {
 
-  String clientVersion = "0.4.1";
+  String extraParamKey = "params";
 
-  /** @return the current Milvus client version */
+  String clientVersion = new Supplier<String>() {
+
+    @Override
+    /** @return current Milvus client version */
+    public String get() {
+      Properties properties = new Properties();
+      try (InputStream inputStream =
+               MilvusClient.class.getClassLoader()
+                   .getResourceAsStream("milvus-client.properties")) {
+        properties.load(inputStream);
+      } catch (IOException ex) {
+        ExceptionUtils.wrapAndThrow(ex);
+      }
+      return properties.getProperty("version");
+    }
+  }.get();
+
+  String target();
+
+  /** @return current Milvus client version： 0.9.0 */
   default String getClientVersion() {
     return clientVersion;
   }
 
   /**
-   * Connects to Milvus server
+   * Close this MilvusClient. Wait at most 1 minute for graceful shutdown.
+   */
+  default void close() {
+    close(TimeUnit.MINUTES.toSeconds(1));
+  }
+
+  /**
+   * Close this MilvusClient. Wait at most `maxWaitSeconds` for graceful shutdown.
+   */
+  void close(long maxWaitSeconds);
+
+  MilvusClient withTimeout(long timeout, TimeUnit timeoutUnit);
+
+  /**
+   * Creates collection specified by <code>collectionMapping</code>
    *
-   * @param connectParam the <code>ConnectParam</code> object
-   *     <pre>
+   * @param collectionMapping the <code>CollectionMapping</code> object
+   * <pre>
    * example usage:
    * <code>
-   * ConnectParam connectParam = new ConnectParam.Builder()
-   *                                             .withHost("localhost")
-   *                                             .withPort("19530")
-   *                                             .withConnectTimeout(10, TimeUnit.SECONDS)
-   *                                             .withKeepAliveTime(Long.MAX_VALUE, TimeUnit.NANOSECONDS)
-   *                                             .withKeepAliveTimeout(20, TimeUnit.SECONDS)
-   *                                             .keepAliveWithoutCalls(false)
-   *                                             .withIdleTimeout(24, TimeUnit.HOURS)
-   *                                             .build();
+   * CollectionMapping collectionMapping = new CollectionMapping.Builder(collectionName)
+   *                                                            .withFields(fields)
+   *                                                            .withParamsInJson("{"segment_row_limit": 100000}")
+   *                                                            .build();
    * </code>
+   * Refer to <code>withFields</code> method for example <code>fields</code> usage.
    * </pre>
    *
-   * @return <code>Response</code>
-   * @throws ConnectFailedException if client failed to connect
-   * @see ConnectParam
-   * @see Response
-   * @see ConnectFailedException
+   * @see CollectionMapping
    */
-  Response connect(ConnectParam connectParam) throws ConnectFailedException;
+  void createCollection(CollectionMapping collectionMapping);
 
   /**
-   * @return <code>true</code> if the client is connected to Milvus server. The channel's
-   *     connectivity state is READY.
-   */
-  boolean isConnected();
-
-  /**
-   * Disconnects from Milvus server
+   * Checks whether the collection exists
    *
-   * @return <code>Response</code>
-   * @throws InterruptedException
-   * @see Response
+   * @param collectionName collection to check
+   * @return true if the collection exists, false otherwise.
    */
-  Response disconnect() throws InterruptedException;
+  boolean hasCollection(String collectionName);
 
   /**
-   * Creates table specified by <code>tableSchemaParam</code>
+   * Drops collection
    *
-   * @param tableSchema the <code>TableSchema</code> object
-   *     <pre>
+   * @param collectionName collection to drop
+   */
+  void dropCollection(String collectionName);
+
+  /**
+   * Creates index specified by <code>index</code>
+   *
+   * @param index the <code>Index</code> object
+   * <pre>
    * example usage:
    * <code>
-   * TableSchema tableSchema = new TableSchema.Builder(tableName, dimension)
-   *                                          .withIndexFileSize(1024)
-   *                                          .withMetricType(MetricType.IP)
-   *                                          .build();
-   * </code>
-   * </pre>
-   *
-   * @return <code>Response</code>
-   * @see TableSchema
-   * @see MetricType
-   * @see Response
-   */
-  Response createTable(TableSchema tableSchema);
-
-  /**
-   * Check whether table exists
-   *
-   * @param tableName table to check
-   * @return <code>HasTableResponse</code>
-   * @see HasTableResponse
-   * @see Response
-   */
-  HasTableResponse hasTable(String tableName);
-
-  /**
-   * Drops table
-   *
-   * @param tableName table to drop
-   * @return <code>Response</code>
-   * @see Response
-   */
-  Response dropTable(String tableName);
-
-  /**
-   * Creates index specified by <code>indexParam</code>
-   *
-   * @param createIndexParam the <code>CreateIndexParam</code> object
-   *     <pre>
-   * example usage:
-   * <code>
-   * Index index = new Index.Builder()
-   *                        .withIndexType(IndexType.IVF_SQ8)
-   *                        .withNList(16384)
+   * Index index = new Index.Builder(collectionName, fieldName)
+   *                        .withParamsInJson(
+   *                            "{"index_type": "IVF_FLAT", "metric_type": "L2",
+   *                              "params": {"nlist": 16384}}")
    *                        .build();
-   * CreateIndexParam createIndexParam = new CreateIndexParam.Builder(tableName)
-   *                                                         .withIndex(index)
-   *                                                         .build();
    * </code>
    * </pre>
    *
-   * @return <code>Response</code>
    * @see Index
-   * @see CreateIndexParam
-   * @see IndexType
-   * @see Response
    */
-  Response createIndex(CreateIndexParam createIndexParam);
+  void createIndex(Index index);
 
   /**
-   * Creates a partition specified by <code>PartitionParam</code>
+   * Creates index specified by <code>index</code> asynchronously
    *
-   * @param partition the <code>PartitionParam</code> object
-   *     <pre>
+   * @param index the <code>Index</code> object
+   * <pre>
    * example usage:
    * <code>
-   * Partition partition = new Partition.Builder(tableName, partitionName, tag).build();
+   * Index index = new Index.Builder(collectionName, fieldName)
+   *                        .withParamsInJson(
+   *                            "{"index_type": "IVF_FLAT", "metric_type": "L2",
+   *                              "params\": {"nlist": 16384}}")
+   *                        .build();
    * </code>
    * </pre>
    *
-   * @return <code>Response</code>
-   * @see Partition
-   * @see Response
+   * @return a <code>ListenableFuture</code> object which holds the <code>Response</code>
+   * @see Index
+   * @see ListenableFuture
    */
-  Response createPartition(Partition partition);
+  ListenableFuture<Void> createIndexAsync(Index index);
 
   /**
-   * Shows current partitions of a table
+   * Creates a partition specified by <code>collectionName</code> and <code>tag</code>
    *
-   * @param tableName table name
-   * @return <code>ShowPartitionsResponse</code>
-   * @see ShowPartitionsResponse
-   * @see Response
-   */
-  ShowPartitionsResponse showPartitions(String tableName);
-
-  /**
-   * Drops partition specified by <code>partitionName</code>
-   *
-   * @param partitionName partition name
-   * @see Response
-   */
-  Response dropPartition(String partitionName);
-
-  /**
-   * Drops partition specified by <code>tableName</code> and <code>tag</code>
-   *
-   * @param tableName table name
+   * @param collectionName collection name
    * @param tag partition tag
-   * @see Response
    */
-  Response dropPartition(String tableName, String tag);
+  void createPartition(String collectionName, String tag);
+
+  /**
+   * Checks whether the partition exists
+   *
+   * @param collectionName collection name
+   * @param tag partition tag
+   * @return true if the partition exists, false otherwise.
+   */
+  boolean hasPartition(String collectionName, String tag);
+
+  /**
+   * Lists current partitions of a collection
+   *
+   * @param collectionName collection name
+   * @return a list of partition names
+   */
+  List<String> listPartitions(String collectionName);
+
+  /**
+   * Drops partition specified by <code>collectionName</code> and <code>tag</code>
+   *
+   * @param collectionName collection name
+   * @param tag partition tag
+   */
+  void dropPartition(String collectionName, String tag);
 
   /**
    * Inserts data specified by <code>insertParam</code>
    *
    * @param insertParam the <code>InsertParam</code> object
-   *     <pre>
+   * <pre>
    * example usage:
    * <code>
-   * InsertParam insertParam = new InsertParam.Builder(tableName, vectors)
-   *                                          .withVectorIds(vectorIds)
+   * InsertParam insertParam = new InsertParam.Builder(collectionName)
+   *                                          .withFields(fields)
+   *                                          .withEntityIds(entityIds)
    *                                          .withPartitionTag(tag)
    *                                          .build();
    * </code>
    * </pre>
    *
-   * @return <code>InsertResponse</code>
+   * @return a list of ids for the inserted entities
    * @see InsertParam
-   * @see InsertResponse
-   * @see Response
    */
-  InsertResponse insert(InsertParam insertParam);
+  List<Long> insert(InsertParam insertParam);
 
   /**
-   * Searches vectors specified by <code>searchParam</code>
+   * Inserts data specified by <code>insertParam</code> asynchronously
+   *
+   * @param insertParam the <code>InsertParam</code> object
+   * <pre>
+   * example usage:
+   * <code>
+   * InsertParam insertParam = new InsertParam.Builder(collectionName)
+   *                                          .withFields(fields)
+   *                                          .withEntityIds(entityIds)
+   *                                          .withPartitionTag(tag)
+   *                                          .build();
+   * </code>
+   * </pre>
+   *
+   * @return a <code>ListenableFuture</code> object which holds the list of ids for the inserted entities.
+   * @see InsertParam
+   * @see ListenableFuture
+   */
+  ListenableFuture<List<Long>> insertAsync(InsertParam insertParam);
+
+  /**
+   * Searches entities specified by <code>searchParam</code>
    *
    * @param searchParam the <code>SearchParam</code> object
-   *     <pre>
+   * <pre>
    * example usage:
    * <code>
-   * SearchParam searchParam = new SearchParam.Builder(tableName, vectorsToSearch)
-   *                                          .withTopK(topK)
-   *                                          .withNProbe(nProbe)
-   *                                          .withDateRanges(dateRanges)
+   * SearchParam searchParam = new SearchParam.Builder(collectionName)
+   *                                          .withDSL(dslStatement)
    *                                          .withPartitionTags(partitionTagsList)
+   *                                          .withParamsInJson("{"fields": ["B"]}")
    *                                          .build();
    * </code>
    * </pre>
    *
-   * @return <code>SearchResponse</code>
+   * @return <code>SearchResult</code>
    * @see SearchParam
-   * @see DateRange
-   * @see SearchResponse
-   * @see SearchResponse.QueryResult
-   * @see Response
+   * @see SearchResult
    */
-  SearchResponse search(SearchParam searchParam);
+  SearchResult search(SearchParam searchParam);
 
   /**
-   * Searches vectors in specific files specified by <code>searchInFilesParam</code>
+   * Searches entities specified by <code>searchParam</code> asynchronously
    *
-   * @param searchInFilesParam the <code>SearchInFilesParam</code> object
-   *     <pre>
+   * @param searchParam the <code>SearchParam</code> object
+   * <pre>
    * example usage:
    * <code>
-   * SearchParam searchParam = new SearchParam.Builder(tableName, vectorsToSearch)
-   *                                          .withTopK(topK)
-   *                                          .withNProbe(nProbe)
-   *                                          .withDateRanges(dateRanges)
+   * SearchParam searchParam = new SearchParam.Builder(collectionName)
+   *                                          .withDSL(dslStatement)
    *                                          .withPartitionTags(partitionTagsList)
+   *                                          .withParamsInJson("{"fields": ["B"]}")
    *                                          .build();
-   * SearchInFilesParam searchInFilesParam = new SearchInFilesParam.Builder(fileIds, searchParam)
-   *                                                               .build();
    * </code>
    * </pre>
    *
-   * @return <code>SearchResponse</code>
-   * @see SearchInFilesParam
+   * @return a <code>ListenableFuture</code> object which holds the <code>SearchResult</code>
    * @see SearchParam
-   * @see DateRange
-   * @see SearchResponse
-   * @see SearchResponse.QueryResult
-   * @see Response
+   * @see SearchResult
+   * @see ListenableFuture
    */
-  SearchResponse searchInFiles(SearchInFilesParam searchInFilesParam);
+  ListenableFuture<SearchResult> searchAsync(SearchParam searchParam);
 
   /**
-   * Describes table
+   * Gets collection info
    *
-   * @param tableName table to describe
-   * @see DescribeTableResponse
-   * @see Response
+   * @param collectionName collection to describe
+   * @return <code>CollectionMapping</code>
+   * @see CollectionMapping
    */
-  DescribeTableResponse describeTable(String tableName);
+  CollectionMapping getCollectionInfo(String collectionName);
 
   /**
-   * Shows current tables
+   * Lists current collections
    *
-   * @return <code>ShowTablesResponse</code>
-   * @see ShowTablesResponse
-   * @see Response
+   * @return a list of collection names
    */
-  ShowTablesResponse showTables();
+  List<String> listCollections();
 
   /**
-   * Gets current row count of table
+   * Gets current entity count of a collection
    *
-   * @param tableName table to count
-   * @return <code>GetTableRowCountResponse</code>
-   * @see GetTableRowCountResponse
-   * @see Response
+   * @param collectionName collection name
+   * @return a count of entities in the collection
    */
-  GetTableRowCountResponse getTableRowCount(String tableName);
+  long countEntities(String collectionName);
 
   /**
-   * Prints server status
+   * Gets server status
    *
-   * @return <code>Response</code>
-   * @see Response
+   * @return a server status string
    */
-  Response getServerStatus();
+  String getServerStatus();
 
   /**
-   * Prints server version
+   * Gets server version
    *
-   * @return <code>Response</code>
-   * @see Response
+   * @return a server version string.
    */
-  Response getServerVersion();
+  String getServerVersion();
 
   /**
-   * Pre-loads table to memory
+   * Sends a command to server
    *
-   * @param tableName table to preload
-   * @return <code>Response</code>
-   * @see Response
+   * @return a message string
    */
-  Response preloadTable(String tableName);
+  String command(String command);
 
   /**
-   * Describes table index
+   * Pre-loads collection to memory
    *
-   * @param tableName table to describe index of
-   * @see DescribeIndexResponse
-   * @see Index
-   * @see Response
+   * @param collectionName collection to load
    */
-  DescribeIndexResponse describeIndex(String tableName);
+  void loadCollection(String collectionName);
 
   /**
-   * Drops table index
+   * Drops collection index
    *
-   * @param tableName table to drop index of
-   * @see Response
+   * @param collectionName The collection to drop index.
+   * @param fieldName Name of the field to drop index for. If this is set to empty string,
+   *                  index of all fields in the collection will be dropped.
    */
-  Response dropIndex(String tableName);
+  void dropIndex(String collectionName, String fieldName);
+
+  /**
+   * Shows collection information. A collection consists of one or multiple partitions (including
+   * the default partition), and a partitions consists of one or more segments. Each partition or
+   * segment can be uniquely identified by its partition tag or segment name respectively. The
+   * result will be returned as JSON string.
+   *
+   * @param collectionName collection to show info from
+   */
+  String getCollectionStats(String collectionName);
+
+  /**
+   * Gets entities data by id array
+   *
+   * @param collectionName collection to get entities from
+   * @param ids a <code>List</code> of entity ids
+   * @param fieldNames  a <code>List</code> of field names. Server will only return entity
+   *                    information for these fields.
+   * @return a map of entity id to entity properties
+   */
+  Map<Long, Map<String, Object>> getEntityByID(String collectionName, List<Long> ids, List<String> fieldNames);
+
+  /**
+   * Gets entities data by id array
+   *
+   * @param collectionName collection to get entities from
+   * @param ids a <code>List</code> of entity ids
+   * @return a map of entity id to entity properties
+   */
+  Map<Long, Map<String, Object>> getEntityByID(String collectionName, List<Long> ids);
+
+  /**
+   * Gets all entity ids in a segment
+   *
+   * @param collectionName collection to get entity ids from
+   * @param segmentId segment id in the collection
+   * @return a list of entity ids in the segment
+   */
+  List<Long> listIDInSegment(String collectionName, Long segmentId);
+
+  /**
+   * Deletes data in a collection by a list of ids
+   *
+   * @param collectionName collection to delete ids from
+   * @param ids a <code>List</code> of entity ids to delete
+   */
+  void deleteEntityByID(String collectionName, List<Long> ids);
+
+  /**
+   * Flushes data in a list collections. Newly inserted or modifications on data will be visible
+   * after <code>flush</code> returned
+   *
+   * @param collectionNames a <code>List</code> of collections to flush
+   */
+  void flush(List<String> collectionNames);
+
+  /**
+   * Flushes data in a list collections asynchronously. Newly inserted or modifications on data will
+   * be visible after <code>flush</code> returned
+   *
+   * @param collectionNames a <code>List</code> of collections to flush
+   * @return <code>ListenableFuture</code>
+   * @see ListenableFuture
+   */
+  ListenableFuture<Void> flushAsync(List<String> collectionNames);
+
+  /**
+   * Flushes data in a collection. Newly inserted or modifications on data will be visible after
+   * <code>flush</code> returned
+   *
+   * @param collectionName name of collection to flush
+   */
+  void flush(String collectionName);
+
+  /**
+   * Flushes data in a collection asynchronously. Newly inserted or modifications on data will be
+   * visible after <code>flush</code> returned
+   *
+   * @param collectionName name of collection to flush
+   * @return <code>ListenableFuture</code>
+   * @see ListenableFuture
+   */
+  ListenableFuture<Void> flushAsync(String collectionName);
+
+  /**
+   * Compacts the collection, erasing deleted data from disk and rebuild index in background (if the
+   * data size after compaction is still larger than indexFileSize). Data was only soft-deleted
+   * until you call compact.
+   *
+   * @param compactParam the <code>CompactParam</code> object
+   * <pre>
+   * example usage:
+   * <code>
+   * CompactParam compactParam = new CompactParam.Builder(collectionName)
+   *                                             .withThreshold(0.3)
+   *                                             .build();
+   * </code>
+   * </pre>
+   *
+   * @see CompactParam
+   */
+  void compact(CompactParam compactParam);
+
+  /**
+   * Compacts the collection, erasing deleted data from disk and rebuild index in background (if the
+   * data size after compaction is still larger than indexFileSize). Data was only soft-deleted
+   * until you call compact.
+   *
+   * @param compactParam the <code>CompactParam</code> object
+   * <pre>
+   * example usage:
+   * <code>
+   * CompactParam compactParam = new CompactParam.Builder(collectionName)
+   *                                             .withThreshold(0.3)
+   *                                             .build();
+   * </code>
+   * </pre>
+   *
+   * @return a <code>ListenableFuture</code> object which holds the <code>Response</code>
+   * @see CompactParam
+   * @see ListenableFuture
+   */
+  ListenableFuture<Void> compactAsync(CompactParam compactParam);
 }

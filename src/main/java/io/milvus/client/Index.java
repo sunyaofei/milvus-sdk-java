@@ -19,61 +19,94 @@
 
 package io.milvus.client;
 
+import io.milvus.grpc.IndexParam;
+import io.milvus.grpc.KeyValuePair;
+
 import javax.annotation.Nonnull;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
-/** Represents an index containing <code>indexType</code> and <code>nList</code> */
+/** Represents an index containing <code>fieldName</code>, <code>indexName</code> and
+ * <code>paramsInJson</code>, which contains index_type, params etc.
+ */
 public class Index {
-  private final IndexType indexType;
-  private final int nList;
+  private final IndexParam.Builder builder;
 
-  private Index(@Nonnull Builder builder) {
-    this.indexType = builder.indexType;
-    this.nList = builder.nList;
+  public static Index create(@Nonnull String collectionName, @Nonnull String fieldName) {
+    return new Index(collectionName, fieldName);
   }
 
-  public IndexType getIndexType() {
-    return indexType;
+  private Index(String collectionName, String fieldName) {
+    this.builder = IndexParam.newBuilder()
+        .setCollectionName(collectionName)
+        .setFieldName(fieldName);
   }
 
-  public int getNList() {
-    return nList;
+  public String getCollectionName() {
+    return builder.getCollectionName();
+  }
+
+  public Index setCollectionName(@Nonnull String collectionName) {
+    builder.setCollectionName(collectionName);
+    return this;
+  }
+
+  public String getFieldName() {
+    return builder.getFieldName();
+  }
+
+  public Index setFieldName(@Nonnull String collectionName) {
+    builder.setFieldName(collectionName);
+    return this;
+  }
+
+  public String getIndexName() {
+    return builder.getIndexName();
+  }
+
+  public Map<String, String> getExtraParams() {
+    return toMap(builder.getExtraParamsList());
+  }
+
+  public Index setIndexType(IndexType indexType) {
+    return addParam("index_type", indexType.name());
+  }
+
+  public Index setMetricType(MetricType metricType) {
+    return addParam("metric_type", metricType.name());
+  }
+
+  public Index setParamsInJson(String paramsInJson) {
+    return addParam(MilvusClient.extraParamKey, paramsInJson);
+  }
+
+  private Index addParam(String key, Object value) {
+    builder.addExtraParams(
+        KeyValuePair.newBuilder()
+            .setKey(key)
+            .setValue(String.valueOf(value))
+            .build());
+    return this;
   }
 
   @Override
   public String toString() {
-    return "Index {" + "indexType=" + indexType + ", nList=" + nList + '}';
+    return "Index {"
+        + "collectionName="
+        + getCollectionName()
+        + ", fieldName="
+        + getFieldName()
+        + ", params="
+        + getExtraParams()
+        + '}';
   }
 
-  /** Builder for <code>Index</code> */
-  public static class Builder {
-    // Optional parameters - initialized to default values
-    private IndexType indexType = IndexType.FLAT;
-    private int nList = 16384;
+  IndexParam grpc() {
+    return builder.build();
+  }
 
-    /**
-     * Optional. Default to <code>IndexType.FLAT</code>
-     *
-     * @param indexType a <code>IndexType</code> object
-     * @return <code>Builder</code>
-     */
-    public Builder withIndexType(@Nonnull IndexType indexType) {
-      this.indexType = indexType;
-      return this;
-    }
-
-    /**
-     * Optional. Default to 16384.
-     *
-     * @param nList nList of the index
-     * @return <code>Builder</code>
-     */
-    public Builder withNList(int nList) {
-      this.nList = nList;
-      return this;
-    }
-
-    public Index build() {
-      return new Index(this);
-    }
+  private Map<String, String> toMap(List<KeyValuePair> extraParams) {
+    return extraParams.stream().collect(Collectors.toMap(KeyValuePair::getKey, KeyValuePair::getValue));
   }
 }

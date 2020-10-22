@@ -19,36 +19,31 @@
 
 package io.milvus.client;
 
-import java.util.List;
+import org.json.JSONObject;
 
-/**
- * Contains the returned <code>response</code> and <code>tableNames</code> for <code>showTables
- * </code>
- */
-public class ShowTablesResponse {
-  private final Response response;
-  private final List<String> tableNames;
+/** Contains Json Parameter Builder */
+public class JsonBuilder {
+  private String paramsInJson;
 
-  ShowTablesResponse(Response response, List<String> tableNames) {
-    this.response = response;
-    this.tableNames = tableNames;
+  public JsonBuilder() {
+    this.paramsInJson = "{}";
   }
 
-  public List<String> getTableNames() {
-    return tableNames;
+  /**
+   * Add key-value pair to paramsInJson.
+   *
+   * @param key The param key
+   * @param value The param value
+   * @return <code>JsonBuilder</code>
+   */
+  public JsonBuilder param(String key, Object value) {
+    JSONObject jsonObject = new JSONObject(this.paramsInJson);
+    jsonObject.put(key, value);
+    this.paramsInJson = jsonObject.toString();
+    return this;
   }
 
-  public Response getResponse() {
-    return response;
-  }
-
-  public boolean ok() {
-    return response.ok();
-  }
-
-  @Override
-  public String toString() {
-    return String.format(
-        "ShowTablesResponse {%s, table names = %s}", response, tableNames.toString());
+  public String build() {
+    return this.paramsInJson;
   }
 }

@@ -19,127 +19,155 @@
 
 package io.milvus.client;
 
-import javax.annotation.Nonnull;
+import com.google.common.collect.ImmutableList;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.UnsafeByteOperations;
+import io.milvus.client.exception.InvalidDsl;
+import io.milvus.grpc.KeyValuePair;
+import io.milvus.grpc.VectorParam;
+import io.milvus.grpc.VectorRecord;
+import io.milvus.grpc.VectorRowRecord;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 /** Contains parameters for <code>search</code> */
 public class SearchParam {
+  private static final String VECTOR_QUERY_KEY = "vector";
+  private static final String VECTOR_QUERY_PLACEHOLDER = "placeholder";
 
-  private final String tableName;
-  private final List<List<Float>> queryVectors;
-  private final List<DateRange> dateRanges;
-  private final long topK;
-  private final long nProbe;
-  private final List<String> partitionTags;
+  private io.milvus.grpc.SearchParam.Builder builder;
 
-  private SearchParam(@Nonnull Builder builder) {
-    this.tableName = builder.tableName;
-    this.queryVectors = builder.queryVectors;
-    this.dateRanges = builder.dateRanges;
-    this.nProbe = builder.nProbe;
-    this.topK = builder.topK;
-    this.partitionTags = builder.partitionTags;
+  public static SearchParam create(String collectionName) {
+    return new SearchParam(collectionName);
   }
 
-  public String getTableName() {
-    return tableName;
+  private SearchParam(String collectionName) {
+    builder = io.milvus.grpc.SearchParam.newBuilder();
+    builder.setCollectionName(collectionName);
   }
 
-  public List<List<Float>> getQueryVectors() {
-    return queryVectors;
-  }
+  public SearchParam setDsl(String dsl) {
+    try {
+      JSONObject dslJson = new JSONObject(dsl);
+      JSONObject vectorQueryParent = locateVectorQuery(dslJson)
+          .orElseThrow(() -> new InvalidDsl("A vector query must be specified", dsl));
+      JSONObject vectorQueries = vectorQueryParent.getJSONObject(VECTOR_QUERY_KEY);
+      vectorQueryParent.put(VECTOR_QUERY_KEY, VECTOR_QUERY_PLACEHOLDER);
+      String vectorQueryField = vectorQueries.keys().next();
+      JSONObject vectorQuery = vectorQueries.getJSONObject(vectorQueryField);
+      String vectorQueryType = vectorQuery.getString("type");
+      JSONArray vectorQueryData = vectorQuery.getJSONArray("query");
 
-  @Deprecated
-  public List<DateRange> getDateRanges() {
-    return dateRanges;
-  }
+      VectorRecord vectorRecord;
+      switch (vectorQueryType) {
+        case "float":
+          vectorRecord = toFloatVectorRecord(vectorQueryData);
+          break;
+        case "binary":
+          vectorRecord = toBinaryVectorRecord(vectorQueryData);
+          break;
+        default:
+          throw new InvalidDsl("Unsupported vector type: " + vectorQueryType, dsl);
+      }
 
-  public long getTopK() {
-    return topK;
-  }
+      JSONObject json = new JSONObject();
+      vectorQuery.remove("type");
+      vectorQuery.remove("query");
+      json.put("placeholder", vectorQueries);
+      VectorParam vectorParam = VectorParam.newBuilder()
+          .setJson(json.toString())
+          .setRowRecord(vectorRecord)
+          .build();
 
-  public long getNProbe() {
-    return nProbe;
-  }
-
-  public List<String> getPartitionTags() {
-    return partitionTags;
-  }
-
-  /** Builder for <code>SearchParam</code> */
-  public static class Builder {
-    // Required parameters
-    private final String tableName;
-    private final List<List<Float>> queryVectors;
-
-    // Optional parameters - initialized to default values
-    private List<DateRange> dateRanges = new ArrayList<>();
-    private long topK = 1024;
-    private long nProbe = 20;
-    private List<String> partitionTags = new ArrayList<>();
-
-    /**
-     * @param tableName table to search from
-     * @param queryVectors a <code>List</code> of vectors to be queried. Each inner <code>List
-     *     </code> represents a vector.
-     */
-    public Builder(@Nonnull String tableName, @Nonnull List<List<Float>> queryVectors) {
-      this.tableName = tableName;
-      this.queryVectors = queryVectors;
-    }
-
-    /**
-     * Deprecated. Optional. Searches vectors in their corresponding date range. Default to an empty
-     * <code>
-     * ArrayList</code>
-     *
-     * @param dateRanges a <code>List</code> of <code>DateRange</code> objects
-     * @return <code>Builder</code>
-     * @see DateRange
-     */
-    @Deprecated
-    public Builder withDateRanges(@Nonnull List<DateRange> dateRanges) {
-      this.dateRanges = dateRanges;
+      builder.setDsl(dslJson.toString())
+          .addAllVectorParam(ImmutableList.of(vectorParam));
       return this;
+    } catch (JSONException e) {
+      throw new InvalidDsl(e.getMessage(), dsl);
     }
+  }
 
-    /**
-     * Optional. Limits search result to <code>topK</code>. Default to 1024.
-     *
-     * @param topK a topK number
-     * @return <code>Builder</code>
-     */
-    public Builder withTopK(long topK) {
-      this.topK = topK;
-      return this;
-    }
+  public SearchParam setPartitionTags(List<String> partitionTags) {
+    builder.addAllPartitionTagArray(partitionTags);
+    return this;
+  }
 
-    /**
-     * Optional. Default to 20.
-     *
-     * @param nProbe a nProbe number
-     * @return <code>Builder</code>
-     */
-    public Builder withNProbe(long nProbe) {
-      this.nProbe = nProbe;
-      return this;
-    }
+  public SearchParam setParamsInJson(String paramsInJson) {
+    builder.addExtraParams(KeyValuePair.newBuilder()
+        .setKey(MilvusClient.extraParamKey)
+        .setValue(paramsInJson)
+        .build());
+    return this;
+  }
 
-    /**
-     * Optional. Search vectors with corresponding <code>partitionTags</code>. Default to an empty
-     * <code>List</code>
-     *
-     * @param partitionTags a <code>List</code> of partition tags
-     * @return <code>Builder</code>
-     */
-    public Builder withPartitionTags(List<String> partitionTags) {
-      this.partitionTags = partitionTags;
-      return this;
-    }
+  io.milvus.grpc.SearchParam grpc() {
+    return builder.build();
+  }
 
-    public SearchParam build() {
-      return new SearchParam(this);
+  private Optional<JSONObject> locateVectorQuery(Object obj) {
+    return obj instanceof JSONObject ? locateVectorQuery((JSONObject) obj)
+        : obj instanceof JSONArray ? locateVectorQuery((JSONArray) obj)
+        : Optional.empty();
+  }
+
+  private Optional<JSONObject> locateVectorQuery(JSONArray array) {
+    return StreamSupport.stream(array.spliterator(), false)
+        .map(this::locateVectorQuery)
+        .filter(Optional::isPresent)
+        .map(Optional::get)
+        .findFirst();
+  }
+
+  private Optional<JSONObject> locateVectorQuery(JSONObject obj) {
+    if (obj.opt(VECTOR_QUERY_KEY) instanceof JSONObject) {
+      return Optional.of(obj);
     }
+    return obj.keySet().stream()
+        .map(key -> locateVectorQuery(obj.get(key)))
+        .filter(Optional::isPresent)
+        .map(Optional::get)
+        .findFirst();
+  }
+
+  private VectorRecord toFloatVectorRecord(JSONArray data) {
+    return VectorRecord.newBuilder().addAllRecords(
+        StreamSupport.stream(data.spliterator(), false)
+            .map(element -> (JSONArray) element)
+            .map(array -> {
+              int dimension = array.length();
+              List<Float> vector = new ArrayList<>(dimension);
+              for (int i = 0; i < dimension; i++) {
+                vector.add(array.getFloat(i));
+              }
+              return VectorRowRecord.newBuilder().addAllFloatData(vector).build();
+            })
+            .collect(Collectors.toList()))
+        .build();
+  }
+
+  private VectorRecord toBinaryVectorRecord(JSONArray data) {
+    return VectorRecord.newBuilder().addAllRecords(
+        StreamSupport.stream(data.spliterator(), false)
+            .map(element -> (JSONArray) element)
+            .map(array -> {
+              int dimension = array.length();
+              ByteBuffer bytes = ByteBuffer.allocate(dimension);
+              for (int i = 0; i < dimension; i++) {
+                bytes.put(array.getNumber(i).byteValue());
+              }
+              bytes.flip();
+              ByteString vector = UnsafeByteOperations.unsafeWrap(bytes);
+              return VectorRowRecord.newBuilder().setBinaryData(vector).build();
+            })
+            .collect(Collectors.toList()))
+        .build();
   }
 }

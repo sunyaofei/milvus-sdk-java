@@ -25,11 +25,11 @@
 
     <groupId>io.milvus</groupId>
     <artifactId>milvus-sdk-java</artifactId>
-    <version>0.4.1</version>
+    <version>0.9.0</version>
     <packaging>jar</packaging>
 
     <name>io.milvus:milvus-sdk-java</name>
-    <description>Java SDK for Milvus distributed high-performance vector search engine.</description>
+    <description>Java SDK for Milvus, a distributed high-performance vector search engine.</description>
     <url>https://github.com/milvus-io/milvus-sdk-java</url>
 
     <licenses>
@@ -41,6 +41,12 @@
     </licenses>
 
     <developers>
+        <developer>
+            <name>Xiaohai Xu</name>
+            <email>xiaohai.xu@zilliz.com</email>
+            <organization>Milvus</organization>
+            <organizationUrl>http://www.milvus.io</organizationUrl>
+        </developer>
         <developer>
             <name>Zhiru Zhu</name>
             <email>zhiru.zhu@zilliz.com</email>
@@ -64,9 +70,10 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <grpc.version>1.24.0</grpc.version>
-        <protobuf.version>3.10.0</protobuf.version>
-        <protoc.version>3.10.0</protoc.version>
+        <grpc.version>1.30.2</grpc.version>
+        <testcontainers.version>1.14.3</testcontainers.version>
+        <protobuf.version>3.11.0</protobuf.version>
+        <protoc.version>3.11.0</protoc.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
     </properties>
@@ -85,59 +92,65 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-gpg-plugin</artifactId>
-            <version>1.6</version>
-        </dependency>
-        <dependency>
-            <groupId>com.google.googlejavaformat</groupId>
-            <artifactId>google-java-format</artifactId>
-            <version>1.7</version>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-netty-shaded</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-protobuf</artifactId>
+            <version>${grpc.version}</version>
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-stub</artifactId>
+            <version>${grpc.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty-shaded</artifactId>
+            <version>${grpc.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.json</groupId>
+            <artifactId>json</artifactId>
+            <version>20190722</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>1.7.30</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.10</version>
         </dependency>
         <dependency>
             <groupId>javax.annotation</groupId>
             <artifactId>javax.annotation-api</artifactId>
             <version>1.2</version>
-            <scope>provided</scope> <!-- not needed at runtime -->
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-testing</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.google.protobuf</groupId>
-            <artifactId>protobuf-java-util</artifactId>
-            <version>${protobuf.version}</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>5.5.2</version>
+            <version>5.6.2</version>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-text</artifactId>
-            <version>1.6</version>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-collections4</artifactId>
-            <version>4.4</version>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j-impl</artifactId>
+            <version>2.12.1</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -195,6 +208,12 @@
     </profiles>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
         <extensions>
             <extension>
                 <groupId>kr.motd.maven</groupId>
@@ -254,13 +273,7 @@
                         <id>enforce</id>
                         <configuration>
                             <rules>
-                                <requireUpperBoundDeps>
-                                    <excludes>
-                                        <exclude>com.google.guava:guava</exclude>
-                                        <exclude>com.google.errorprone:error_prone_annotations</exclude>
-                                        <exclude>com.google.protobuf:protobuf-java</exclude>
-                                    </excludes>
-                                </requireUpperBoundDeps>
+                                <requireUpperBoundDeps/>
                             </rules>
                         </configuration>
                         <goals>
@@ -268,6 +281,21 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <!-- JUnit5 tests are not running with maven 3.6.x
+            https://dzone.com/articles/why-your-junit-5-tests-are-not-running-under-maven
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>2.22.2</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.junit.jupiter</groupId>
+                        <artifactId>junit-jupiter-engine</artifactId>
+                        <version>5.1.0</version>
+                    </dependency>
+                </dependencies>
             </plugin>
         </plugins>
     </build>

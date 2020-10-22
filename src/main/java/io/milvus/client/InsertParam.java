@@ -19,84 +19,93 @@
 
 package io.milvus.client;
 
-import javax.annotation.Nonnull;
-import java.util.ArrayList;
+import com.google.protobuf.ByteString;
+import io.milvus.client.exception.UnsupportedDataType;
+import io.milvus.grpc.AttrRecord;
+import io.milvus.grpc.FieldValue;
+import io.milvus.grpc.VectorRecord;
+import io.milvus.grpc.VectorRowRecord;
+
+import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /** Contains parameters for <code>insert</code> */
 public class InsertParam {
-  private final String tableName;
-  private final List<List<Float>> vectors;
-  private final List<Long> vectorIds;
-  private final String partitionTag;
+  private io.milvus.grpc.InsertParam.Builder builder;
 
-  private InsertParam(@Nonnull Builder builder) {
-    this.tableName = builder.tableName;
-    this.vectors = builder.vectors;
-    this.vectorIds = builder.vectorIds;
-    this.partitionTag = builder.partitionTag;
+  public static InsertParam create(String collectionName) {
+    return new InsertParam(collectionName);
   }
 
-  public String getTableName() {
-    return tableName;
+  private InsertParam(String collectionName) {
+    this.builder = io.milvus.grpc.InsertParam.newBuilder();
+    builder.setCollectionName(collectionName);
   }
 
-  public List<List<Float>> getVectors() {
-    return vectors;
+  public InsertParam setEntityIds(List<Long> entityIds) {
+    builder.addAllEntityIdArray(entityIds);
+    return this;
   }
 
-  public List<Long> getVectorIds() {
-    return vectorIds;
-  }
-
-  public String getPartitionTag() {
-    return partitionTag;
-  }
-
-  /** Builder for <code>InsertParam</code> */
-  public static class Builder {
-    // Required parameters
-    private final String tableName;
-    private final List<List<Float>> vectors;
-
-    // Optional parameters - initialized to default values
-    private List<Long> vectorIds = new ArrayList<>();
-    private String partitionTag = "";
-
-    /**
-     * @param tableName table to insert vectors to
-     * @param vectors a <code>List</code> of vectors to insert. Each inner <code>List</code>
-     *     represents a vector.
-     */
-    public Builder(@Nonnull String tableName, @Nonnull List<List<Float>> vectors) {
-      this.tableName = tableName;
-      this.vectors = vectors;
+  public <T> InsertParam addField(String name, DataType type, List<T> values) {
+    AttrRecord.Builder record = AttrRecord.newBuilder();
+    switch (type) {
+      case INT32:
+        record.addAllInt32Value((List<Integer>) values);
+        break;
+      case INT64:
+        record.addAllInt64Value((List<Long>) values);
+        break;
+      case FLOAT:
+        record.addAllFloatValue((List<Float>) values);
+        break;
+      case DOUBLE:
+        record.addAllDoubleValue((List<Double>) values);
+        break;
+      default:
+        throw new UnsupportedDataType("Unsupported data type: " + type.name());
     }
+    builder.addFields(FieldValue.newBuilder()
+        .setFieldName(name)
+        .setTypeValue(type.getVal())
+        .setAttrRecord(record.build())
+        .build());
+    return this;
+  }
 
-    /**
-     * Optional. Default to an empty <code>ArrayList</code>
-     *
-     * @param vectorIds a <code>List</code> of ids associated with the vectors to insert
-     * @return <code>Builder</code>
-     */
-    public Builder withVectorIds(@Nonnull List<Long> vectorIds) {
-      this.vectorIds = vectorIds;
-      return this;
+  public <T> InsertParam addVectorField(String name, DataType type, List<T> values) {
+    VectorRecord.Builder record = VectorRecord.newBuilder();
+    switch (type) {
+      case VECTOR_FLOAT:
+        record.addAllRecords(
+            ((List<List<Float>>) values).stream()
+                .map(row -> VectorRowRecord.newBuilder().addAllFloatData(row).build())
+                .collect(Collectors.toList()));
+        break;
+      case VECTOR_BINARY:
+        record.addAllRecords(
+            ((List<ByteBuffer>) values).stream()
+                .map(row -> VectorRowRecord.newBuilder().setBinaryData(ByteString.copyFrom(row.slice())).build())
+                .collect(Collectors.toList()));
+        break;
+      default:
+        throw new UnsupportedDataType("Unsupported data type: " + type.name());
     }
+    builder.addFields(FieldValue.newBuilder()
+        .setFieldName(name)
+        .setTypeValue(type.getVal())
+        .setVectorRecord(record.build())
+        .build());
+    return this;
+  }
 
-    /**
-     * Optional. Default to an empty <code>String</code>
-     *
-     * @param partitionTag partition tag
-     * @return <code>Builder</code>
-     */
-    public Builder withPartitionTag(@Nonnull String partitionTag) {
-      this.partitionTag = partitionTag;
-      return this;
-    }
+  public InsertParam setPartitionTag(String partitionTag) {
+    builder.setPartitionTag(partitionTag);
+    return this;
+  }
 
-    public InsertParam build() {
-      return new InsertParam(this);
-    }
+  io.milvus.grpc.InsertParam grpc() {
+    return builder.build();
   }
 }

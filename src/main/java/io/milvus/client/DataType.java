@@ -19,34 +19,43 @@
 
 package io.milvus.client;
 
+import java.util.Arrays;
+import java.util.Optional;
+
 /**
- * Contains the returned <code>response</code> and <code>tableRowCount</code> for <code>
- * getTableRowCount</code>
+ * Represents available data types.
  */
-public class GetTableRowCountResponse {
-  private final Response response;
-  private final long tableRowCount;
+public enum DataType {
+  NONE(0),
+  BOOL(1),
+  INT8(2),
+  INT16(3),
+  INT32(4),
+  INT64(5),
 
-  GetTableRowCountResponse(Response response, long tableRowCount) {
-    this.response = response;
-    this.tableRowCount = tableRowCount;
+  FLOAT(10),
+  DOUBLE(11),
+
+  STRING(20),
+
+  VECTOR_BINARY(100),
+  VECTOR_FLOAT(101),
+
+  UNKNOWN(-1);
+
+  private final int val;
+
+  DataType(int val) {
+    this.val = val;
   }
 
-  public long getTableRowCount() {
-    return tableRowCount;
+  public static DataType valueOf(int val) {
+    Optional<DataType> search =
+        Arrays.stream(values()).filter(dataType -> dataType.val == val).findFirst();
+    return search.orElse(UNKNOWN);
   }
 
-  public Response getResponse() {
-    return response;
-  }
-
-  public boolean ok() {
-    return response.ok();
-  }
-
-  @Override
-  public String toString() {
-    return String.format(
-        "CountTableResponse {%s, table row count = %d}", response.toString(), tableRowCount);
+  public int getVal() {
+    return val;
   }
 }

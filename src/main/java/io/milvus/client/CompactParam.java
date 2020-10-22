@@ -19,35 +19,25 @@
 
 package io.milvus.client;
 
-import java.util.List;
+/** Contains parameters for <code>compact</code> */
+public class CompactParam {
+  private io.milvus.grpc.CompactParam.Builder builder;
 
-/**
- * Contains the returned <code>response</code> and <code>vectorIds</code> for <code>insert</code>
- */
-public class InsertResponse {
-  private final Response response;
-  private final List<Long> vectorIds;
-
-  InsertResponse(Response response, List<Long> vectorIds) {
-    this.response = response;
-    this.vectorIds = vectorIds;
+  public static CompactParam create(String collectionName) {
+    return new CompactParam(collectionName);
   }
 
-  public List<Long> getVectorIds() {
-    return vectorIds;
+  private CompactParam(String collectionName) {
+    builder = io.milvus.grpc.CompactParam.newBuilder();
+    builder.setCollectionName(collectionName).setThreshold(0.2);
   }
 
-  public Response getResponse() {
-    return response;
+  public CompactParam setThreshold(double threshold) {
+    builder.setThreshold(threshold);
+    return this;
   }
 
-  public boolean ok() {
-    return response.ok();
-  }
-
-  @Override
-  public String toString() {
-    return String.format(
-        "InsertResponse {%s, returned %d vector ids}", response.toString(), this.vectorIds.size());
+  io.milvus.grpc.CompactParam grpc() {
+    return builder.build();
   }
 }

@@ -17,22 +17,31 @@
  * under the License.
  */
 
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import io.milvus.client.*;
 
-import java.util.*;
-import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.SplittableRandom;
 import java.util.stream.Collectors;
 import java.util.stream.DoubleStream;
+import java.util.stream.LongStream;
 
+// This is a simple example demonstrating how to use Milvus Java SDK v0.9.0.
+// For detailed API documentation, please refer to
+// https://milvus-io.github.io/milvus-sdk-java/javadoc/io/milvus/client/package-summary.html
+// You can also find more information on https://milvus.io/docs/overview.md
 public class MilvusClientExample {
 
   // Helper function that generates random vectors
-  static List<List<Float>> generateVectors(long vectorCount, long dimension) {
-    SplittableRandom splittableRandom = new SplittableRandom();
-    List<List<Float>> vectors = new ArrayList<>();
+  static List<List<Float>> generateVectors(int vectorCount, int dimension) {
+    SplittableRandom splitCollectionRandom = new SplittableRandom();
+    List<List<Float>> vectors = new ArrayList<>(vectorCount);
     for (int i = 0; i < vectorCount; ++i) {
-      splittableRandom = splittableRandom.split();
-      DoubleStream doubleStream = splittableRandom.doubles(dimension);
+      splitCollectionRandom = splitCollectionRandom.split();
+      DoubleStream doubleStream = splitCollectionRandom.doubles(dimension);
       List<Float> vector =
           doubleStream.boxed().map(Double::floatValue).collect(Collectors.toList());
       vectors.add(vector);
@@ -40,8 +49,7 @@ public class MilvusClientExample {
     return vectors;
   }
 
-  // Helper function that normalizes a vector if you are using IP (Inner Product) as your metric
-  // type
+  // Helper function that normalizes a vector if you are using IP (Inner Product) as your metric type
   static List<Float> normalizeVector(List<Float> vector) {
     float squareSum = vector.stream().map(x -> x * x).reduce((float) 0, Float::sum);
     final float norm = (float) Math.sqrt(squareSum);
@@ -49,131 +57,156 @@ public class MilvusClientExample {
     return vector;
   }
 
-  public static void main(String[] args) throws InterruptedException, ConnectFailedException {
-
-    // You may need to change the following to the host and port of your Milvus server
-//    final String host = "localhost";
-//    final String port = "19530";
-
-    final String host = args[0];
-    final String port = args[1];
-
-    // Create Milvus client
-    MilvusClient client = new MilvusGrpcClient();
-
-    // Connect to Milvus server
-    ConnectParam connectParam = new ConnectParam.Builder().withHost(host).withPort(port).build();
+  public static void main(String[] args) {
     try {
-      Response connectResponse = client.connect(connectParam);
-    } catch (ConnectFailedException e) {
-      System.out.println(e.toString());
-      throw e;
+      ConnectParam connectParam = new ConnectParam.Builder().build();
+      run(connectParam);
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+  }
+
+  public static void run(ConnectParam connectParam) {
+    // Create Milvus client
+    MilvusClient client = new MilvusGrpcClient(connectParam).withLogging();
+
+    // Create a collection with the following collection mapping
+    final String collectionName = "example_collection"; // collection name
+    final int dimension = 128; // dimension of each vector
+    // we choose IP (Inner Product) as our metric type
+    CollectionMapping collectionMapping = CollectionMapping
+        .create(collectionName)
+        .addField("int64", DataType.INT64)
+        .addField("float", DataType.FLOAT)
+        .addVectorField("float_vec", DataType.VECTOR_FLOAT, dimension)
+        .setParamsInJson("{\"segment_row_limit\": 50000, \"auto_id\": true}");
+
+    client.createCollection(collectionMapping);
+
+    if (!client.hasCollection(collectionName)) {
+      throw new AssertionError("Collection not found");
     }
 
-    // Check whether we are connected
-    boolean connected = client.isConnected();
-    System.out.println("Connected = " + connected);
+    System.out.println(collectionMapping.toString());
 
-    // Create a table with the following table schema
-    final String tableName = "example"; // table name
-    final long dimension = 128; // dimension of each vector
-    final long indexFileSize = 1024; // maximum size (in MB) of each index file
-    final MetricType metricType = MetricType.IP; // we choose IP (Inner Product) as our metric type
-    TableSchema tableSchema =
-        new TableSchema.Builder(tableName, dimension)
-            .withIndexFileSize(indexFileSize)
-            .withMetricType(metricType)
-            .build();
-    Response createTableResponse = client.createTable(tableSchema);
-    System.out.println(createTableResponse);
+    // Get collection info
+    CollectionMapping collectionInfo = client.getCollectionInfo(collectionName);
 
-    // Check whether the table exists
-    HasTableResponse hasTableResponse = client.hasTable(tableName);
-    System.out.println(hasTableResponse);
+    // Insert randomly generated field values to collection
+    final int vectorCount = 100000;
 
-    // Describe the table
-    DescribeTableResponse describeTableResponse = client.describeTable(tableName);
-    System.out.println(describeTableResponse);
+    List<Long> longValues = LongStream.range(0, vectorCount).boxed().collect(Collectors.toList());
+    List<Float> floatValues = LongStream.range(0, vectorCount).boxed().map(Long::floatValue).collect(Collectors.toList());
+    List<List<Float>> vectors = generateVectors(vectorCount, dimension).stream()
+        .map(MilvusClientExample::normalizeVector)
+        .collect(Collectors.toList());
 
-    // Insert randomly generated vectors to table
-//    final int vectorCount = 100000;
-    final int vectorCount = 1000;
-    List<List<Float>> vectors = generateVectors(vectorCount, dimension);
-    vectors =
-        vectors.stream().map(MilvusClientExample::normalizeVector).collect(Collectors.toList());
-    InsertParam insertParam = new InsertParam.Builder(tableName, vectors).build();
-    InsertResponse insertResponse = client.insert(insertParam);
-    System.out.println(insertResponse);
-    // Insert returns a list of vector ids that you will be using (if you did not supply them
-    // yourself) to reference the vectors you just inserted
-    List<Long> vectorIds = insertResponse.getVectorIds();
+    InsertParam insertParam = InsertParam
+        .create(collectionName)
+        .addField("int64", DataType.INT64, longValues)
+        .addField("float", DataType.FLOAT, floatValues)
+        .addVectorField("float_vec", DataType.VECTOR_FLOAT, vectors);
 
-    // The data we just inserted won't be serialized and written to meta until the next second
-    // wait 1 second here
-    TimeUnit.SECONDS.sleep(1);
+    // Insert returns a list of entity ids that you will be using (if you did not supply them
+    // yourself) to reference the entities you just inserted
+    List<Long> vectorIds = client.insert(insertParam);
 
-    // Get current row count of table
-    GetTableRowCountResponse getTableRowCountResponse = client.getTableRowCount(tableName);
-    System.out.println(getTableRowCountResponse);
+    // Flush data in collection
+    client.flush(collectionName);
 
-    // Create index for the table
-    // We choose IVF_SQ8 as our index type here. Refer to IndexType javadoc for a
-    // complete explanation of different index types
-    final IndexType indexType = IndexType.IVF_SQ8;
-    Index index = new Index.Builder().withIndexType(indexType).build();
-    CreateIndexParam createIndexParam =
-        new CreateIndexParam.Builder(tableName).withIndex(index).build();
-    Response createIndexResponse = client.createIndex(createIndexParam);
-    System.out.println(createIndexResponse);
+    // Get current entity count of collection
+    long entityCount = client.countEntities(collectionName);
 
-    // Describe the index for your table
-    DescribeIndexResponse describeIndexResponse = client.describeIndex(tableName);
-    System.out.println(describeIndexResponse);
+    // Create index for the collection
+    // We choose IVF_SQ8 as our index type here. Refer to Milvus documentation for a
+    // complete explanation of different index types and their relative parameters.
+    Index index = Index
+        .create(collectionName, "float_vec")
+        .setIndexType(IndexType.IVF_SQ8)
+        .setMetricType(MetricType.L2)
+        .setParamsInJson(new JsonBuilder().param("nlist", 2048).build());
 
-    System.out.println("ready to search " + new Date());
+    client.createIndex(index);
 
-    // Search vectors
-    // Searching the first 5 vectors of the vectors we just inserted
+    // Get collection info
+    String collectionStats = client.getCollectionStats(collectionName);
+    System.out.format("Collection Stats: %s\n", collectionStats);
+
+    // Check whether a partition exists in collection
+    // Obviously we do not have partition "tag" now
+    if (client.hasPartition(collectionName, "tag")) {
+      throw new AssertionError("Unexpected partition found!");
+    }
+
+    // Search entities using DSL statement.
+    // Searching the first 5 entities we just inserted by including them in DSL.
     final int searchBatchSize = 5;
     List<List<Float>> vectorsToSearch = vectors.subList(0, searchBatchSize);
     final long topK = 10;
-    SearchParam searchParam =
-        new SearchParam.Builder(tableName, vectorsToSearch).withTopK(topK).build();
-    SearchResponse searchResponse = client.search(searchParam);
-    System.out.println(searchResponse);
-    if (searchResponse.ok()) {
-      List<List<SearchResponse.QueryResult>> queryResultsList =
-          searchResponse.getQueryResultsList();
-      final double epsilon = 0.001;
-      for (int i = 0; i < searchBatchSize; i++) {
-        // Since we are searching for vector that is already present in the table,
-        // the first result vector should be itself and the distance (inner product) should be
-        // very close to 1 (some precision is lost during the process)
-        System.out.println(queryResultsList);
-//        SearchResponse.QueryResult firstQueryResult = queryResultsList.get(i).get(0);
-//        if (firstQueryResult.getVectorId() != vectorIds.get(i)
-//            || Math.abs(1 - firstQueryResult.getDistance()) > epsilon) {
-////          throw new AssertionError("Wrong results!");
-//        }
+    // Based on the index you created, the available search parameters will be different. Refer to
+    // the Milvus documentation for how to set the optimal parameters based on your needs.
+    String dsl = String.format(
+        "{\"bool\": {"
+            + "\"must\": [{"
+            + "    \"range\": {"
+            + "        \"float\": {\"GT\": -10, \"LT\": 100}"
+            + "    }},{"
+            + "    \"vector\": {"
+            + "        \"float_vec\": {"
+            + "            \"topk\": %d, \"metric_type\": \"IP\", \"type\": \"float\", \"query\": "
+            + "%s, \"params\": {\"nprobe\": 50}"
+            + "    }}}]}}",
+        topK, vectorsToSearch.toString());
+    SearchParam searchParam = SearchParam
+        .create(collectionName)
+        .setDsl(dsl)
+        .setParamsInJson("{\"fields\": [\"int64\", \"float\"]}");
+    SearchResult searchResult = client.search(searchParam);
+    List<List<SearchResult.QueryResult>> queryResultsList = searchResult.getQueryResultsList();
+    final double epsilon = 0.01;
+    for (int i = 0; i < searchBatchSize; i++) {
+      // Since we are searching for vector that is already present in the collection,
+      // the first result vector should be itself and the distance (inner product) should be
+      // very close to 1 (some precision is lost during the process)
+      SearchResult.QueryResult firstQueryResult = queryResultsList.get(i).get(0);
+      if (firstQueryResult.getEntityId() != vectorIds.get(i)
+          || Math.abs(1 - firstQueryResult.getDistance()) > epsilon) {
+        throw new AssertionError("Wrong results!");
       }
     }
 
-    System.out.println("search done " + new Date());
+    // You can also get result ids and distances separately
+    List<List<Long>> resultIds = searchResult.getResultIdsList();
+    List<List<Float>> resultDistances = searchResult.getResultDistancesList();
 
-//     Drop index for the table
-    Response dropIndexResponse = client.dropIndex(tableName);
-    System.out.println(dropIndexResponse);
+    // You can send search request asynchronously, which returns a ListenableFuture object
+    ListenableFuture<SearchResult> searchResponseFuture = client.searchAsync(searchParam);
+    // Get search response immediately. Obviously you will want to do more complicated stuff with
+    // ListenableFuture
+    Futures.getUnchecked(searchResponseFuture);
 
-    // Drop table
-    Response dropTableResponse = client.dropTable(tableName);
-    System.out.println(dropTableResponse);
+    // Delete the first 5 entities you just searched
+    client.deleteEntityByID(collectionName, vectorIds.subList(0, searchBatchSize));
+    client.flush(collectionName);
 
-    // Disconnect from Milvus server
-    try {
-      Response disconnectResponse = client.disconnect();
-    } catch (InterruptedException e) {
-      System.out.println("Failed to disconnect: " + e.toString());
-      throw e;
+    // After deleting them, we call getEntityByID and obviously all 5 entities should not be returned.
+    Map<Long, Map<String, Object>> entities = client.getEntityByID(collectionName, vectorIds.subList(0, searchBatchSize));
+    if (!entities.isEmpty()) {
+      throw new AssertionError("Unexpected entity count!");
     }
+
+    // Compact the collection, erase deleted data from disk and rebuild index in background (if
+    // the data size after compaction is still larger than indexFileSize). Data was only
+    // soft-deleted until you call compact.
+    client.compact(CompactParam.create(collectionName).setThreshold(0.2));
+
+    // Drop index for the collection
+    client.dropIndex(collectionName, "float_vec");
+
+    // Drop collection
+    client.dropCollection(collectionName);
+
+    // Close connection
+    client.close();
   }
 }
